@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:tvnih/AuthProvider.dart';
 import 'package:tvnih/widget/PieChartCard.dart';
 
 void main() {
@@ -15,35 +17,29 @@ void main() {
   );
 }
 
-class AuthProvider extends ChangeNotifier {
-  bool _isLoggedIn = false;
-
-  bool get isLoggedIn => _isLoggedIn;
-
-  void login(String email, String password) {
-    if (email == "admin@example.com" && password == "123456") {
-      _isLoggedIn = true;
-      notifyListeners();
-    }
-  }
-
-  void logout() {
-    _isLoggedIn = false;
-    notifyListeners();
-  }
-}
-
 class ThemeProvider extends ChangeNotifier {
   ThemeMode _themeMode = ThemeMode.light;
 
-  ThemeMode get themeMode => _themeMode;
+  ThemeProvider() {
+    _loadThemePreference(); // muat preferensi saat inisialisasi
+  }
 
-  void toggleTheme(bool isDark) {
+  ThemeMode get themeMode => _themeMode;
+  bool get isDarkMode => _themeMode == ThemeMode.dark;
+
+  void toggleTheme(bool isDark) async {
     _themeMode = isDark ? ThemeMode.dark : ThemeMode.light;
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('isDarkMode', isDark);
     notifyListeners();
   }
 
-  bool get isDarkMode => _themeMode == ThemeMode.dark;
+  Future<void> _loadThemePreference() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    final isDark = prefs.getBool('isDarkMode') ?? false;
+    _themeMode = isDark ? ThemeMode.dark : ThemeMode.light;
+    notifyListeners();
+  }
 }
 
 class MyApp extends StatelessWidget {
@@ -68,8 +64,19 @@ class MyApp extends StatelessWidget {
         textTheme: GoogleFonts.poppinsTextTheme(),
         brightness: Brightness.dark,
       ),
-      home: Consumer<AuthProvider>(
-        builder: (context, auth, _) {
+      home: FutureBuilder(
+        future: Future.delayed(
+          const Duration(milliseconds: 100),
+        ), // agar rebuild setelah notifyListeners selesai
+        builder: (context, snapshot) {
+          final auth = Provider.of<AuthProvider>(context);
+
+          if (snapshot.connectionState != ConnectionState.done) {
+            return const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            );
+          }
+
           return auth.isLoggedIn
               ? const DashboardScreen()
               : const LoginScreen();
@@ -123,6 +130,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   const SizedBox(height: 24),
                   TextField(
                     controller: emailController,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onBackground,
+                    ),
                     decoration: InputDecoration(
                       labelText: "Email",
                       prefixIcon: Icon(Icons.email),
@@ -131,10 +141,15 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
                   ),
+
                   const SizedBox(height: 16),
+
                   TextField(
                     controller: passwordController,
                     obscureText: true,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onBackground,
+                    ),
                     decoration: InputDecoration(
                       labelText: "Password",
                       prefixIcon: Icon(Icons.lock),
@@ -183,167 +198,234 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-class DashboardScreen extends StatelessWidget {
+class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
+
+  @override
+  State<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends State<DashboardScreen> {
+  bool isSidebarExpanded = true;
 
   @override
   Widget build(BuildContext context) {
     final auth = Provider.of<AuthProvider>(context, listen: false);
 
     return Scaffold(
-      body: Row(
-        children: [
-          // Sidebar
-          Container(
-            width: 220,
-            color: Colors.blueGrey.shade900,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                DrawerHeader(
-                  decoration: BoxDecoration(color: Colors.blueGrey.shade800),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: const [
-                      Icon(Icons.dashboard, color: Colors.white, size: 48),
-                      SizedBox(height: 12),
-                      Text(
-                        'Admin Panel',
-                        style: TextStyle(color: Colors.white, fontSize: 18),
-                      ),
-                    ],
-                  ),
-                ),
-                ListTile(
-                  leading: Icon(Icons.people, color: Colors.white),
-                  title: Text('Users', style: TextStyle(color: Colors.white)),
-                  onTap: () {},
-                ),
-                ListTile(
-                  leading: Icon(Icons.analytics, color: Colors.white),
-                  title: Text('Reports', style: TextStyle(color: Colors.white)),
-                  onTap: () {},
-                ),
-                ListTile(
-                  leading: Icon(Icons.settings, color: Colors.white),
-                  title: Text(
-                    'Settings',
-                    style: TextStyle(color: Colors.white),
-                  ),
-                  onTap: () {},
-                ),
-                ListTile(
-                  leading: Icon(Icons.info, color: Colors.white),
-                  title: Text('Info', style: TextStyle(color: Colors.white)),
-                  onTap: () {},
-                ),
-                const Spacer(),
-                ListTile(
-                  leading: Icon(Icons.logout, color: Colors.white),
-                  title: Text('Logout', style: TextStyle(color: Colors.white)),
-                  onTap: () => auth.logout(),
-                ),
-              ],
-            ),
-          ),
+      body: SafeArea(
+        child: Row(
+          children: [
+            // Sidebar
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 300),
+              width: isSidebarExpanded ? 220 : 70,
+              color: Colors.blueGrey.shade900,
+              child: Column(
+                children: [
+                  _buildSidebarHeader(),
 
-          // Content Area
-          Expanded(
-            child: Column(
-              children: [
-                // Topbar
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      "Dashboard",
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.onBackground,
-                      ),
-                    ),
-
-                    Consumer<ThemeProvider>(
-                      builder:
-                          (context, themeProvider, _) => Row(
-                            children: [
-                              Icon(
-                                themeProvider.isDarkMode
-                                    ? Icons.dark_mode
-                                    : Icons.light_mode,
-                              ),
-                              Switch(
-                                value: themeProvider.isDarkMode,
-                                onChanged: (value) {
-                                  themeProvider.toggleTheme(value);
-                                },
-                              ),
-                            ],
-                          ),
-                    ),
-                  ],
-                ),
-
-                // Content Cards
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24.0),
+                  Expanded(
                     child: ListView(
-                      padding: const EdgeInsets.all(24.0),
                       children: [
-                        GridView(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          gridDelegate:
-                              const SliverGridDelegateWithMaxCrossAxisExtent(
-                                maxCrossAxisExtent: 300,
-                                crossAxisSpacing: 24,
-                                mainAxisSpacing: 24,
-                                childAspectRatio: 1,
-                              ),
-                          children: const [
-                            DashboardCard(
-                              icon: Icons.people,
-                              label: "Users",
-                              color: Colors.blue,
-                            ),
-                            DashboardCard(
-                              icon: Icons.analytics,
-                              label: "Reports",
-                              color: Colors.orange,
-                            ),
-                            DashboardCard(
-                              icon: Icons.info,
-                              label: "Info",
-                              color: Colors.purple,
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 24),
-                        Container(
-                          height: 250,
-                          width: double.infinity,
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            boxShadow: [
-                              BoxShadow(
-                                blurRadius: 6,
-                                color: Colors.black.withOpacity(0.1),
-                              ),
-                            ],
-                          ),
-                          padding: const EdgeInsets.all(16),
-                          child: const PieChartCard(),
-                        ),
+                        _buildSidebarItem(Icons.people, 'Users'),
+                        _buildSidebarItem(Icons.analytics, 'Reports'),
+                        _buildSidebarItem(Icons.settings, 'Settings'),
+                        _buildSidebarItem(Icons.info, 'Info'),
                       ],
                     ),
                   ),
-                ),
-              ],
+                  // Collapse Sidebar Button
+                  IconButton(
+                    icon: Icon(
+                      isSidebarExpanded
+                          ? Icons.arrow_back_ios
+                          : Icons.arrow_forward_ios,
+                      color: Colors.white,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        isSidebarExpanded = !isSidebarExpanded;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  // Logout
+                  ListTile(
+                    leading: const Icon(Icons.logout, color: Colors.white),
+                    title:
+                        isSidebarExpanded
+                            ? const Text(
+                              'Logout',
+                              style: TextStyle(color: Colors.white),
+                            )
+                            : null,
+                    onTap: () => auth.logout(),
+                  ),
+                ],
+              ),
+            ),
+
+            // Main content
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.all(24.0),
+                children: [
+                  // Header
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        "Dashboard",
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          color: Theme.of(context).colorScheme.onBackground,
+                        ),
+                      ),
+                      Consumer<ThemeProvider>(
+                        builder:
+                            (context, themeProvider, _) => Row(
+                              children: [
+                                Icon(
+                                  themeProvider.isDarkMode
+                                      ? Icons.dark_mode
+                                      : Icons.light_mode,
+                                ),
+                                Switch(
+                                  value: themeProvider.isDarkMode,
+                                  onChanged: themeProvider.toggleTheme,
+                                ),
+                              ],
+                            ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Cards
+                  GridView(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    gridDelegate:
+                        const SliverGridDelegateWithMaxCrossAxisExtent(
+                          maxCrossAxisExtent: 300,
+                          crossAxisSpacing: 24,
+                          mainAxisSpacing: 24,
+                          childAspectRatio: 1,
+                        ),
+                    children: const [
+                      DashboardCard(
+                        icon: Icons.people,
+                        label: "Users",
+                        color: Colors.blue,
+                      ),
+                      DashboardCard(
+                        icon: Icons.analytics,
+                        label: "Reports",
+                        color: Colors.orange,
+                      ),
+                      DashboardCard(
+                        icon: Icons.info,
+                        label: "Info",
+                        color: Colors.purple,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Chart
+                  Container(
+                    height: 250,
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).cardColor,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          blurRadius: 6,
+                          color: Colors.black.withOpacity(0.1),
+                        ),
+                      ],
+                    ),
+                    padding: const EdgeInsets.all(16),
+                    child: const PieChartCard(),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSidebarItem(IconData icon, String label) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+      padding: EdgeInsets.symmetric(
+        horizontal: isSidebarExpanded ? 16 : 8,
+        vertical: 8,
+      ),
+      child: Row(
+        children: [
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOut,
+            width: isSidebarExpanded ? 24 : 32,
+            height: isSidebarExpanded ? 24 : 32,
+            child: Icon(
+              icon,
+              color: Colors.white,
+              size: isSidebarExpanded ? 24 : 32,
             ),
           ),
+          if (isSidebarExpanded) ...[
+            const SizedBox(width: 16),
+            Expanded(
+              child: AnimatedDefaultTextStyle(
+                duration: const Duration(milliseconds: 300),
+                style: const TextStyle(color: Colors.white, fontSize: 16),
+                child: Text(label),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSidebarHeader() {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      height: 120,
+      width: double.infinity,
+      decoration: BoxDecoration(color: Colors.blueGrey.shade800),
+      padding: const EdgeInsets.all(12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          const Icon(Icons.dashboard, color: Colors.white, size: 32),
+          if (isSidebarExpanded)
+            Expanded(
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 300),
+                opacity: isSidebarExpanded ? 1.0 : 0.0,
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 12),
+                  child: Text(
+                    'Admin Panel',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
